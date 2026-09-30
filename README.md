@@ -98,6 +98,27 @@ so to fire the other posting slots, point a free external cron (cron-job.org,
 UptimeRobot) at `/api/cron/process-queue` and set `CRON_SECRET` so only your scheduler
 can trigger it.
 
+## Classic-car page, one post every 5 hours
+
+Set two environment variables on Vercel (see [`.env.example`](.env.example)):
+
+| Variable | Value | Effect |
+| --- | --- | --- |
+| `NICHE` | `classic-cars` | Each post is about one car from a curated list of ~65 classics (never repeating until the whole list has been used), with a matching classic-car photo and enthusiast-style copy. |
+| `POST_INTERVAL_HOURS` | `5` | Posts every 5 hours from the last automatic post, instead of at fixed hours. Posting hours and posts-per-day are ignored in this mode. |
+
+Then turn **Autopilot** on in the dashboard (Settings) and connect your Page.
+
+For photos of *real* cars, add a free `PEXELS_API_KEY` and set **Image source** to
+`stock` (or `mixed`). AI images work without any key but can get car details wrong.
+
+**Scheduler.** Vercel's Hobby plan can't run a cron more than once a day, so
+[`.github/workflows/autopost.yml`](.github/workflows/autopost.yml) pings the bot every
+15 minutes for free; the bot only posts when 5 hours have passed. Add two repository
+secrets: `CRON_URL` (`https://<your-app>.vercel.app/api/cron/process-queue`) and
+`CRON_SECRET` (same value as on Vercel). GitHub pauses scheduled workflows on repos with
+no activity for 60 days — open the Actions tab and re-enable it if that happens.
+
 ## Security notes
 
 - The dashboard and the entire API are behind a single admin session cookie

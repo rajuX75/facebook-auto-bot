@@ -1,6 +1,16 @@
 import { env } from "@/lib/env";
 import type { ContentProvider, GeneratedContent } from "@/lib/types";
 
+/** Optional niche guidance layered on top of the base copywriting prompt. */
+export interface ContentOptions {
+  /** Extra instructions appended to the system prompt. */
+  hint?: string;
+  /** Postable fallback used if every AI provider is unreachable. */
+  fallback?: (topic: string) => { title: string; description: string; hashtags: string[] };
+}
+
+const withHint = (hint?: string) => (hint ? `${SYSTEM_PROMPT}\n\n${hint}` : SYSTEM_PROMPT);
+
 /**
  * Facebook copy generation across free LLM providers, tried in order until
  * one returns usable JSON.
@@ -61,7 +71,8 @@ async function chatCompletion(
   url: string,
   model: string,
   topic: string,
-  apiKey?: string
+  apiKey?: string,
+  hint?: string
 ): Promise<string> {
   const res = await fetch(url, {
     method: "POST",
@@ -73,7 +84,7 @@ async function chatCompletion(
       model,
       temperature: 0.9,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: withHint(hint) },
         { role: "user", content: `Topic: ${topic}` },
       ],
     }),
@@ -97,14 +108,14 @@ async function chatCompletion(
   return content;
 }
 
-async function geminiCompletion(topic: string, apiKey: string): Promise<string> {
+async function geminiCompletion(topic: string, apiKey: string, hint?: string): Promise<string> {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        systemInstruction: { parts: [{ text: withHint(hint) }] },
         contents: [{ role: "user", parts: [{ text: `Topic: ${topic}` }] }],
         generationConfig: { temperature: 0.9, responseMimeType: "application/json" },
       }),
@@ -131,7 +142,7 @@ function template(topic: string): GeneratedContent {
 
 type Attempt = { provider: ContentProvider; run: () => Promise<string> };
 
-function providerChain(topic: string): Attempt[] {
+function providerChain(topic: string, hint?: string): Attempt[] {
   const chain: Attempt[] = [];
 
   // A configured free-tier key beats the keyless service on both quality and
@@ -144,28 +155,37 @@ function providerChain(topic: string): Attempt[] {
       chain.push({
         provider: "groq",
         run: () =>
-          chatCompletion("https://api.groq.com/openai/v1/chat/completions", model, topic, groqKey),
+          chatCompletion(
+            "https://api.groq.com/openai/v1/chat/completions",
+            model,
+            topic,
+            groqKey,
+            hint
+          ),
       });
     }
   }
 
   const geminiKey = env.geminiApiKey;
   if (geminiKey) {
-    chain.push({ provider: "gemini", run: () => geminiCompletion(topic, geminiKey) });
+    chain.push({ provider: "gemini", run: () => geminiCompletion(topic, geminiKey, hint) });
   }
 
   chain.push({
     provider: "pollinations",
-    run: () => chatCompletion("https://text.pollinations.ai/openai", "openai-fast", topic),
+    run: () => chatCompletion("https://text.pollinations.ai/openai", "openai-fast", topic, undefined, hint),
   });
 
   return chain;
 }
 
-export async function generateContent(topic: string): Promise<GeneratedContent> {
+export async function generateContent(
+  topic: string,
+  options: ContentOptions = {}
+): Promise<GeneratedContent> {
   const failures: string[] = [];
 
-  for (const { provider, run } of providerChain(topic)) {
+  for (const { provider, run } of providerChain(topic, options.hint)) {
     try {
       return { ...parseContent(await run()), provider };
     } catch (err) {
@@ -174,5 +194,9 @@ export async function generateContent(topic: string): Promise<GeneratedContent> 
   }
 
   console.warn("[generateContent] every provider failed:", failures.join(" | "));
-  return { ...template(topic), provider: "template", providerError: failures[0] };
+  return {
+    ...(options.fallback ?? template)(topic),
+    provider: "template",
+    providerError: failures[0],
+  };
 }

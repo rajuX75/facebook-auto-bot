@@ -73,6 +73,20 @@ export const env = {
   },
 
   /**
+   * Post every N hours instead of at fixed hours of the day. 0 (unset) keeps
+   * the original posting_hours / posts_per_day behaviour.
+   */
+  get postIntervalHours() {
+    const n = Number(optional("POST_INTERVAL_HOURS", "0"));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  },
+
+  /** "classic-cars" turns on the classic-car topics, photos and copy. */
+  get niche() {
+    return optional("NICHE").trim().toLowerCase();
+  },
+
+  /**
    * Origin this deployment is reachable at, used to build redirects back into
    * the dashboard. Vercel injects VERCEL_PROJECT_PRODUCTION_URL on every
    * deployment, so a fresh copy of this app redirects correctly without anyone

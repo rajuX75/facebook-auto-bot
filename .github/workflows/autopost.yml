@@ -1,0 +1,41 @@
+# Free scheduler for the autopilot.
+#
+# Vercel's Hobby plan only allows one cron run per day, so this workflow pings
+# the bot's cron endpoint every 15 minutes instead. The bot itself decides
+# whether a post is due (POST_INTERVAL_HOURS since the last one), so most
+# pings do nothing and a post goes out roughly every 5 hours.
+#
+# Setup: repo Settings > Secrets and variables > Actions > New repository secret
+#   CRON_URL     e.g. https://your-app.vercel.app/api/cron/process-queue
+#   CRON_SECRET  the same value as the CRON_SECRET env var on Vercel
+name: autopost
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: autopost
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the cron endpoint
+        env:
+          CRON_URL: ${{ secrets.CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "CRON_URL and CRON_SECRET repository secrets are required." >&2
+            exit 1
+          fi
+          # Generating a post (copy + image + publish) can take up to ~60s.
+          curl --fail-with-body --show-error --silent \
+            --max-time 120 --retry 2 --retry-delay 10 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$CRON_URL"
+          echo
